@@ -1,7 +1,0 @@
-.env
-.env.localstack
-queue_config.json
-__pycache__/
-*.pyc
-venv/
-localstack_data/
