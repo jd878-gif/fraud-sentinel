@@ -1,4 +1,4 @@
-﻿.env
+.env
 .env.localstack
 *.csv
 *.tar.gz
@@ -12,3 +12,4 @@ paysim_enhanced_deliverables/
 localstack_data/
 test.txt
 .gitinore
+screenshots/
