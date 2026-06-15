@@ -1,0 +1,26 @@
+﻿# Large data files - too big for GitHub
+*.csv
+*.tar.gz
+*.parquet
+
+# Environment and secrets
+.env
+.env.localstack
+queue_config.json
+queue_config_aws.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Temp files
+test.txt
+localstack_data/
+
+# IAM policy files (contain account info)
+glue_trust_policy.json
+lambda_trust_policy.json
+stepfunctions_trust_policy.json
