@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: fraud-sqs-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs,s3,dynamodb,cloudwatch
+      - PERSISTENCE=1
+      - LS_LOG=WARN
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 8s
+      timeout: 4s
+      retries: 15
+      start_period: 20s
+
+volumes:
+  localstack_data:
+    driver: local
