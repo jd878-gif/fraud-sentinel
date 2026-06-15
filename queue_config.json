@@ -1,0 +1,7 @@
+{
+  "main_queue_url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/fraud-transactions-dev",
+  "dlq_url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/fraud-transactions-dev-dlq",
+  "alert_queue_url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/fraud-alerts-dev",
+  "dedup_table": "fraud-dedup-dev",
+  "s3_bucket": "fraud-platform-raw-dev"
+}

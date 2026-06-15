@@ -1,0 +1,3 @@
+{
+  "main_queue_url": "https://sqs.us-east-1.amazonaws.com/621402808508/fraud-transactions-dev"
+}
