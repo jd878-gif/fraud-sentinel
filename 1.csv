@@ -1,8 +1,0 @@
-"merchant_category","total_transactions","fraud_rate_pct","avg_risk_score"
-"Food","228","0.88","0.501"
-"Travel","134","0.75","0.5129"
-"Entertainment","108","0.0","0.5243"
-"Electronics","99","0.0","0.5084"
-"Utilities","86","0.0","0.5176"
-"Retail","230","0.0","0.5232"
-"Healthcare","107","0.0","0.5074"
