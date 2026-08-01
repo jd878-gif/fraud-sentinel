@@ -122,28 +122,7 @@ DynamoDB TTL automatically expires velocity counters (no manual cleanup cost).
 Glue job bookmarks prevent reprocessing historical data.
 S3 Intelligent-Tiering moves infrequently accessed Parquet to cheaper storage tiers automatically.
 
----
 
-## 8. How Would I Explain This in an Amazon Interview?
-
-**Situation:** I wanted to build a production-grade AWS fraud detection platform for my
-portfolio. The PaySim dataset has ground-truth fraud labels, but it's missing everything
-that makes a real fraud pipeline hard: device context, IP data, velocity features, and
-operational failures like late-arriving events and schema drift.
-
-**Task:** Transform the raw dataset into something a real fraud detection system could
-ingest, and document every design decision the way an Amazon engineer would.
-
-**Action:** I built a chunked Python pipeline that processes 6.36M rows without loading
-them all into memory. For each transaction, it computes per-customer velocity (5-min and
-1-hour sliding windows), assigns deterministic device IDs, flags geo-anomalies, and injects
-realistic operational failures at configurable rates. The output is a five-table star schema
-aligned to what Kinesis, Lambda, DynamoDB, Glue, and SageMaker expect as input.
-
-**Result:** The enhanced dataset has 37 columns (vs. the original 11), four supporting
-dimension tables, and a README that maps every column to an AWS service. The pipeline is
-fully reproducible (seed=42), configurable via a single CONFIG dict, and documented with
-production-quality comments throughout.
 
 **What I'd do differently at 10× scale:** Replace the in-memory velocity windows with
 DynamoDB atomic counters, move the enrichment layer to Glue Streaming on Kinesis, and
