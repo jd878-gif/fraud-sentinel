@@ -1,7 +1,7 @@
 # Engineering Reflection — PaySim Enhancement Pipeline
 
-**Author:** Senior Data Engineer, Fraud Prevention Team  
-**Date:** 2023-Q4  
+**Author:** Jeet Dave
+**Date:** 2026-Q2  
 **Project:** PaySim → Production-Grade Fraud Detection Dataset  
 **Status:** v1.0 Complete; v2 (Kinesis integration) planned
 
