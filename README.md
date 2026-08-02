@@ -12,6 +12,13 @@ FraudSentinel is a production-grade, end-to-end fraud detection platform built o
 
 ---
 
+## Live Pipeline in Action
+![CloudWatch Dashboard](screenshots/cloudwatch_dashboard.png)
+![Step Functions Execution](screenshots/stepfunctions_graph.png)
+![SageMaker Endpoint](screenshots/sagemaker_endpoint.png)
+![Glue Job History](screenshots/glue_job_history.png)
+![Fraud Alert Email](screenshots/gmail_fraud_alert.png)
+
 ## Architecture
 
 ```
