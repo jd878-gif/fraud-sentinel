@@ -7,7 +7,7 @@
 
 ---
 
-1. What Did I Build and Why?
+## 1. What Did I Build and Why?
 
 The PaySim dataset is the gold standard academic benchmark for fraud detection, but it is not a production dataset. It has no timestamps, no device context, no IP addresses, no merchant categories, and no operational failures. A model trained on raw PaySim will perform well in a Kaggle notebook and fail immediately in production.
 
@@ -15,7 +15,7 @@ The goal of this pipeline was to close that gap: transform PaySim into a dataset
 
 The business problem it addresses is real: fraud in mobile payments costs the industry approximately $30B annually. Detecting it requires low-latency feature computation (velocity in the past 5 minutes), device fingerprinting (new device = elevated risk), and continuous model retraining as fraud rings adapt their behavior (concept drift).
 
-2. Why Were These Enhancements Necessary?
+## 2. Why Were These Enhancements Necessary?
 Timestamps
 
 AWS Kinesis, Glue, and SageMaker all operate on ISO 8601 datetimes. PaySim's integer step field is useless to every production service. Converting steps to real timestamps was the minimum viable change to make this dataset usable.
@@ -36,7 +36,7 @@ Concept Drift
 
 A fraud detection model trained on steps 1–372 will degrade when evaluated on steps 373–743 because the merchant_risk_score distribution for fraud rows shifts upward. SageMaker Model Monitor's data quality and model quality monitors exist precisely to detect this. Without a dataset that exhibits drift, you cannot build or test those monitors.
 
-3. What Trade-offs Did I Make?
+## 3. What Trade-offs Did I Make?
 Memory vs. Accuracy (Velocity Computation)
 
 The velocity features are computed using an in-memory Python dict per customer. For the 507,500-row enhanced dataset (500K unique customers) this requires holding ~500K customer windows in memory simultaneously (~200MB). At 10× the source dataset scale (63M rows, scaling from the 6.36M-row PaySim base) this would exceed Lambda memory limits.
@@ -57,7 +57,7 @@ The geo_anomaly_flag compares merchant_country to customer_country. This is a co
 
 Production solution: MaxMind GeoIP2 + Haversine distance computation in Lambda. This would require a VPC endpoint and a GeoIP2 database layer, which is beyond the scope of offline feature generation.
 
-4. What Broke During Implementation?
+## 4. What Broke During Implementation?
 Issue 1: Memory blowout on full 6.36M row load
 
 Symptom: MemoryError when attempting to pd.read_csv the full file into a single DataFrame.
@@ -78,7 +78,7 @@ Symptom: The 500K row demo sample only covers steps 1–20 (the first 500K rows 
 
 Fix: For the demo output, applied v2 tags to the last 20% of rows programmatically. The enhancement_pipeline.py script is architecturally correct for the full dataset — running it on all 6.36M rows produces the correct v1/v2 distribution automatically.
 
-5. How Would I Redesign This at 10× Scale?
+## 5. How Would I Redesign This at 10× Scale?
 
 At 10× (63M transactions):
 
@@ -92,12 +92,9 @@ Schema Registry: Deploy the AWS Glue Schema Registry with Avro serialization. Al
 
 Cost at 10× (estimated): ~$180/month (Kinesis: $30, Glue: $80, Lambda: $20, DynamoDB: $50).
 
-6. What AWS Costs Should I Expect?
-Student/Demo Setup (this pipeline, S3 only)
-Service	Usage	Monthly Cost
-S3 Storage (5 CSV files, ~2GB)	2 GB	~$0.05
-S3 GET requests	1,000	~$0.005
-Total		< $1/month
+What I'd do differently at 10× scale: Replace the in-memory velocity windows with DynamoDB atomic counters, move the enrichment layer to Glue Streaming on Kinesis, and add the Glue Schema Registry to handle the v1→v2 schema evolution without pipeline restarts.
+
+## 6. What AWS Costs Should I Expect?
 Prototype (Kinesis + Lambda + DynamoDB + Glue)
 Service	Usage	Monthly Cost
 Kinesis Data Streams (2 shards)	24×7	~$22
