@@ -9,7 +9,7 @@ AUC 1.00). What changed and why:
   1. Trains on the full enhanced PaySim dataset, not a 1,000-row sample.
      With PaySim's ~0.13% fraud rate a tiny sample has only a handful of
      fraud cases, so any AUC on it is noise.
-  2. Time-based split on `step` (train = first 70% of time, validation = next
+  2. Time-based split on `step` (train = earliest 70% of transactions, validation = next
      15%, test = last 15%). A fraud model is always used on *future*
      transactions, so a random shuffle overstates performance.
   3. Only decision-time features in the deployed model. Post-transaction
@@ -305,7 +305,7 @@ def _plot_pr_curves(outdir, y_te, test_scores: dict):
         ax.plot(r, p, label=name, linestyle="--" if "rule" in name else "-")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
-    ax.set_title("Precision-recall, test set (last 15% of time)")
+    ax.set_title("Precision-recall, test set (latest 15% of transactions)")
     ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "pr_curves.png"), dpi=150)
