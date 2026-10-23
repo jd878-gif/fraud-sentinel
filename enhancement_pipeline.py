@@ -562,8 +562,13 @@ def simulate_concept_drift(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     max_step = df["step"].max()
-    # Fraud rows in the second half of the dataset get a risk score boost
-    mask = (df["isFraud"] == 1) & (df["step"] > max_step * 0.5)
+    late = df["step"] > max_step * 0.5
+    # merchant_risk_score is a per-merchant attribute, so drift must move the
+    # merchant's score for ALL of its transactions. Boosting only the fraud rows
+    # (the previous version) gave fraud and legitimate rows at the same merchant
+    # different scores, which leaks the label into a feature.
+    ring_merchants = set(df.loc[late & (df["isFraud"] == 1), "nameDest"])
+    mask = late & df["nameDest"].isin(ring_merchants)
     df.loc[mask, "merchant_risk_score"] = (
         df.loc[mask, "merchant_risk_score"] * 1.4
     ).clip(upper=1.0)

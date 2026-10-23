@@ -42,6 +42,7 @@ import io
 
 import pandas as pd
 import numpy as np
+from project_config import get_account_id
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +52,7 @@ log = logging.getLogger("sagemaker_fraud")
 
 # ── Config ─────────────────────────────────────────────────────────
 REGION        = "us-east-1"
-ACCOUNT_ID    = "621402808508"
+ACCOUNT_ID    = get_account_id()
 S3_BUCKET     = "fraud-platform-jeet-dev"
 SILVER_PATH   = f"s3://{S3_BUCKET}/silver/transactions/"
 MODEL_PREFIX  = "fraud-model"

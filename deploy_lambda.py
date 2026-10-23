@@ -15,6 +15,7 @@ import os
 import time
 import zipfile
 import io
+from project_config import get_account_id
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +25,7 @@ log = logging.getLogger("deploy_lambda")
 
 # ── Config ─────────────────────────────────────────────────────────
 REGION        = "us-east-1"
-ACCOUNT_ID    = "621402808508"
+ACCOUNT_ID    = get_account_id()
 FUNCTION_NAME = "fraud-transaction-processor"
 LAMBDA_ROLE   = f"arn:aws:iam::{ACCOUNT_ID}:role/FraudPlatformLambdaRole"
 SNS_TOPIC_ARN = f"arn:aws:sns:{REGION}:{ACCOUNT_ID}:fraud-alerts"
@@ -50,6 +51,7 @@ def zip_lambda_function() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write("lambda_function.py", "lambda_function.py")
+        zf.write("fraud_features.py", "fraud_features.py")   # shared with train_model.py
     buffer.seek(0)
     log.info("Packaged lambda_function.py into ZIP (%d bytes)", len(buffer.getvalue()))
     return buffer.getvalue()

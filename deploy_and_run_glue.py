@@ -13,6 +13,7 @@ Usage:
 import boto3
 import time
 import logging
+from project_config import role_arn
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +25,7 @@ log = logging.getLogger("glue_deploy")
 REGION        = "us-east-1"
 S3_BUCKET     = "fraud-platform-jeet-dev"
 DATABASE_NAME = "fraud_platform_dev"
-GLUE_ROLE     = "arn:aws:iam::621402808508:role/FraudPlatformGlueRole"
+GLUE_ROLE     = role_arn("FraudPlatformGlueRole")
 
 JOBS = [
     {

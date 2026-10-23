@@ -37,6 +37,7 @@ import boto3
 import json
 import logging
 import time
+from project_config import get_account_id
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,7 +47,7 @@ log = logging.getLogger("deploy_sfn")
 
 # ── Config ─────────────────────────────────────────────────────────
 REGION        = "us-east-1"
-ACCOUNT_ID    = "621402808508"
+ACCOUNT_ID    = get_account_id()
 SFN_ROLE_ARN  = f"arn:aws:iam::{ACCOUNT_ID}:role/FraudPlatformStepFunctionsRole"
 SNS_TOPIC_ARN = f"arn:aws:sns:{REGION}:{ACCOUNT_ID}:fraud-alerts"
 S3_BUCKET     = "fraud-platform-jeet-dev"
