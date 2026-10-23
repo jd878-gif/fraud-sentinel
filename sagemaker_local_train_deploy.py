@@ -45,6 +45,7 @@ import time
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+from project_config import get_account_id
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +55,7 @@ log = logging.getLogger("sagemaker_deploy")
 
 # ── Config ─────────────────────────────────────────────────────────
 REGION        = "us-east-1"
-ACCOUNT_ID    = "REDACTED"
+ACCOUNT_ID    = get_account_id()
 S3_BUCKET     = "fraud-platform-jeet-dev"
 MODEL_PREFIX  = "fraud-model"
 ENDPOINT_NAME = "fraud-scoring-serverless"

@@ -12,3 +12,7 @@ paysim_enhanced_deliverables/
 localstack_data/
 test.txt
 .gitinore
+
+# training outputs
+artifacts/
+data/
