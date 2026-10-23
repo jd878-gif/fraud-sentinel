@@ -141,6 +141,8 @@ PaySim Dataset (6.36M transactions)
 
 Built on the **PaySim** mobile money simulation dataset (6.36M transactions) enhanced with a custom Python pipeline to behave like production payment data.
 
+> **Source & license:** [PaySim, Synthetic Financial Datasets For Fraud Detection](https://www.kaggle.com/datasets/ealaxi/paysim1) (E. A. Lopez-Rojas et al.), Kaggle, licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The raw data is not redistributed in this repo; download it from Kaggle.
+
 ### Enhancement Pipeline (`enhancement_pipeline.py`)
 
 | Feature Added | Description |
@@ -338,7 +340,6 @@ fraud-sentinel/
 | Metric | Value |
 |---|---|
 | Transactions processed | 507,500 |
-| Flagging rate (5,000 msg run) | 7.7% |
 | Food category fraud rate | 0.88% (highest) |
 | Traveler segment fraud rate | 0.65% (highest) |
 | Lambda P99 latency | 761ms |
@@ -481,7 +482,7 @@ python train_model.py --data data/enhanced/enhanced_transactions.csv --deploy
 **AWS:** SQS · Lambda · DynamoDB · S3 · Glue · Athena · Step Functions · SNS · SageMaker · CloudWatch · EventBridge  
 **Local Dev:** LocalStack · Docker  
 **Testing / CI:** pytest · ruff · GitHub Actions  
-**Data Source:** PaySim (Kaggle) — enhanced with custom pipeline  
+**Data Source:** PaySim (Kaggle, CC BY-SA 4.0) — enhanced with custom pipeline  
 
 ---
 
