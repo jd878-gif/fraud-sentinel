@@ -21,7 +21,9 @@ Why Lambda + SQS trigger vs consumer_sqs.py?
 
 Environment variables (set when deploying):
   S3_BUCKET        fraud-platform-jeet-dev
-  SNS_TOPIC_ARN    arn:aws:sns:us-east-1:REDACTED:fraud-alerts
+  SNS_TOPIC_ARN    arn:aws:sns:<region>:<account-id>:fraud-alerts
+  ML_ENDPOINT_NAME (optional) SageMaker endpoint for ML scoring
+  ML_THRESHOLD     (optional) score threshold chosen by train_model.py
   DEDUP_TABLE      fraud-dedup-dev
   FEATURE_TABLE    fraud-feature-store
   EVENTS_TABLE     fraud-events
@@ -36,6 +38,8 @@ from datetime import datetime, timezone, timedelta
 
 import boto3
 from botocore.exceptions import ClientError
+
+from fraud_features import DECISION_TIME_FEATURES, build_feature_vector, to_csv_row
 
 # ── Logging ────────────────────────────────────────────────────────
 # Lambda automatically sends logs to CloudWatch Logs
@@ -57,6 +61,11 @@ SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", "")
 DEDUP_TABLE   = os.environ.get("DEDUP_TABLE",   "fraud-dedup-dev")
 FEATURE_TABLE = os.environ.get("FEATURE_TABLE", "fraud-feature-store")
 EVENTS_TABLE  = os.environ.get("EVENTS_TABLE",  "fraud-events")
+ML_ENDPOINT   = os.environ.get("ML_ENDPOINT_NAME", "")
+ML_THRESHOLD  = float(os.environ.get("ML_THRESHOLD", "0.5"))
+ML_FEATURES   = [c for c in os.environ.get("ML_FEATURE_COLUMNS", "").split(",") if c] \
+                or DECISION_TIME_FEATURES
+_sm_runtime   = boto3.client("sagemaker-runtime", region_name=_REGION) if ML_ENDPOINT else None
 
 # ── DynamoDB table references ──────────────────────────────────────
 _dedup_table   = _ddb.Table(DEDUP_TABLE)
@@ -68,41 +77,57 @@ _events_table  = _ddb.Table(EVENTS_TABLE)
 # IDEMPOTENCY
 # ─────────────────────────────────────────────────────────────────
 
-def is_already_processed(event_id: str) -> bool:
+def claim_event(event_id: str) -> bool:
     """
-    Check DynamoDB dedup table for this event_id.
-    SQS Standard delivers at-least-once — duplicates are real.
-    Without this check, a retried message would be processed twice,
-    potentially double-counting fraud events and corrupting velocity.
+    Atomically claim an event before processing it.
+
+    A conditional put succeeds for exactly one caller, so two Lambda instances
+    receiving the same SQS message (at-least-once delivery) can never both
+    process it. A get-then-put check would race: both could read "not seen"
+    before either writes.
+
+    Returns True if this invocation owns the event, False if it is a duplicate.
     """
-    try:
-        resp = _dedup_table.get_item(
-            Key={"event_id": event_id},
-            ProjectionExpression="event_id",
-        )
-        return "Item" in resp
-    except ClientError as e:
-        logger.warning("Dedup check failed for %s: %s", event_id, e)
-        return False
-
-
-def mark_processed(event_id: str):
-    """Write event_id to dedup table with 24-hour TTL."""
     ttl = int(time.time()) + 86_400
     try:
         _dedup_table.put_item(
             Item={
-                "event_id":     event_id,
-                "processed_at": datetime.now(timezone.utc).isoformat(),
-                "ttl":          ttl,
+                "event_id":   event_id,
+                "status":     "IN_PROGRESS",
+                "claimed_at": datetime.now(timezone.utc).isoformat(),
+                "ttl":        ttl,
             },
             ConditionExpression="attribute_not_exists(event_id)",
         )
+        return True
     except ClientError as e:
         if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            logger.debug("Race condition on dedup write for %s — safe", event_id)
-        else:
-            raise
+            return False
+        raise   # infrastructure error: let SQS retry the message
+
+
+def release_claim(event_id: str):
+    """Remove the claim after a processing failure so the SQS retry can run."""
+    try:
+        _dedup_table.delete_item(Key={"event_id": event_id})
+    except ClientError as e:
+        logger.warning("Could not release claim for %s: %s", event_id, e)
+
+
+def mark_processed(event_id: str):
+    """Mark a claimed event as DONE (claim already exists, so update it)."""
+    try:
+        _dedup_table.update_item(
+            Key={"event_id": event_id},
+            UpdateExpression="SET #s = :done, processed_at = :ts",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":done": "DONE",
+                ":ts":   datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    except ClientError as e:
+        logger.warning("Failed to mark %s processed: %s", event_id, e)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -239,16 +264,42 @@ def run_fraud_rules(payload: dict, velocity: dict) -> dict:
             risk_score += 4
             logger.info("Rule triggered: BALANCE_MISMATCH_TRANSFER (amount=%.2f)", amount)
 
-    # Preserve original PaySim ground truth label
-    if int(payload.get("isFraud") or 0) == 1:
-        triggered.append("PAYSIM_FRAUD_LABEL")
-        risk_score += 2
+    # NOTE: the PaySim ground-truth label (isFraud) is deliberately NOT read here.
+    # A real payment system never knows the label at decision time; reading it
+    # would make every alert "correct" by construction. The label is stored with
+    # the event (write_to_feature_store) only so alert precision can be measured.
 
     return {
         "triggered_rules": triggered,
         "risk_score":      risk_score,
         "is_flagged":      len(triggered) > 0,
     }
+
+
+def score_with_model(payload: dict, velocity: dict, event_time: datetime):
+    """
+    Optional ML score from the SageMaker endpoint. Uses the same feature code as
+    training (fraud_features.py), so there is no training/serving skew.
+    Returns None when no endpoint is configured or the call fails: the rule
+    engine still runs, so a model outage never blocks transaction processing.
+    """
+    if _sm_runtime is None:
+        return None
+    vector = build_feature_vector(
+        payload,
+        velocity_5min=velocity.get("velocity_5min_realtime", 0),
+        velocity_1hour=velocity.get("velocity_1hour_realtime", 0),
+        hour_of_day=event_time.hour,
+        feature_columns=ML_FEATURES,
+    )
+    try:
+        resp = _sm_runtime.invoke_endpoint(
+            EndpointName=ML_ENDPOINT, ContentType="text/csv", Body=to_csv_row(vector)
+        )
+        return float(resp["Body"].read().decode("utf-8").strip())
+    except (ClientError, ValueError) as e:
+        logger.warning("ML scoring failed, falling back to rules only: %s", e)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -292,6 +343,9 @@ def write_to_feature_store(
         "triggered_rules": fraud_result["triggered_rules"],
         "risk_score":      fraud_result["risk_score"],
         "is_flagged":      fraud_result["is_flagged"],
+        # DynamoDB rejects Python floats, so store the score as a string
+        "ml_score":        "" if fraud_result.get("ml_score") is None
+                           else f"{fraud_result['ml_score']:.6f}",
 
         # Real-time computed velocity (from DynamoDB feature store)
         "velocity_5min_realtime":  velocity.get("velocity_5min_realtime", 0),
@@ -445,6 +499,8 @@ def lambda_handler(event, context):
 
     for record in event.get("Records", []):
         message_id = record["messageId"]
+        event_id = ""
+        claimed = False
         try:
             # ── Parse SQS message ──────────────────────────────
             envelope = json.loads(record["body"])
@@ -458,7 +514,8 @@ def lambda_handler(event, context):
                 continue
 
             # ── Idempotency check ──────────────────────────────
-            if is_already_processed(event_id):
+            claimed = claim_event(event_id)
+            if not claimed:
                 logger.info("Duplicate — skipping %s", event_id)
                 stats["skipped"] += 1
                 continue
@@ -483,6 +540,13 @@ def lambda_handler(event, context):
 
             # ── Run fraud detection rules ──────────────────────
             fraud_result = run_fraud_rules(payload, velocity)
+
+            # ── Optional ML score (SageMaker) ──────────────────
+            ml_score = score_with_model(payload, velocity, event_time)
+            fraud_result["ml_score"] = ml_score
+            if ml_score is not None and ml_score >= ML_THRESHOLD:
+                fraud_result["triggered_rules"].append("ML_MODEL_SCORE")
+                fraud_result["is_flagged"] = True
 
             # ── Write to DynamoDB feature store ────────────────
             write_to_feature_store(
@@ -511,6 +575,8 @@ def lambda_handler(event, context):
             stats["processed"] += 1
 
         except Exception as e:
+            if claimed:
+                release_claim(event_id)
             logger.error("Error processing message %s: %s", message_id, e, exc_info=True)
             stats["errors"] += 1
             # Report this message as failed so SQS retries only it

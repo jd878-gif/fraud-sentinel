@@ -5,8 +5,9 @@
 [![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://python.org)
 [![XGBoost](https://img.shields.io/badge/XGBoost-3.0.2-green)](https://xgboost.readthedocs.io)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
+[![CI](https://github.com/jd878-gif/fraud-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/jd878-gif/fraud-sentinel/actions/workflows/ci.yml)
 
-FraudSentinel is a production-grade, end-to-end fraud detection platform built on AWS that processes financial transactions in real-time, applies rule-based and ML-based fraud scoring, orchestrates batch ETL pipelines, and delivers structured fraud alerts via email — all for under $0.15 in compute cost.
+FraudSentinel is an end-to-end fraud detection platform built on AWS that processes financial transactions in real-time, applies rule-based and ML-based fraud scoring, orchestrates batch ETL pipelines, and delivers structured fraud alerts via email — all for under $0.15 in compute cost.
 
 > Built as a portfolio project demonstrating production data engineering patterns: event-driven architecture, Medallion data lake design, serverless ML inference, and automated pipeline orchestration.
 
@@ -103,7 +104,7 @@ PaySim Dataset (6.36M transactions)
 │   Amazon SageMaker              │
 │   XGBoost Fraud Classifier      │
 │   Serverless Inference          │
-│   AUC: 1.00 · F1: 1.00         │
+│   Time-split eval · PR-AUC      │
 │   8 fraud signal features       │
 └─────────────────────────────────┘
 
@@ -175,43 +176,46 @@ Four real-time rules evaluated on every transaction:
 | `HIGH_RISK_MERCHANT` | Suspicious merchant | merchant_risk_score ≥ 0.75 | +3 |
 | `GEO_ANOMALY_NEW_DEVICE` | Account takeover | geo_anomaly=1 AND new_device=1 | +5 |
 | `BALANCE_MISMATCH_TRANSFER` | Fraudulent ledger entry | TRANSFER with unchanged balance | +4 |
-| `PAYSIM_FRAUD_LABEL` | Ground truth label | isFraud=1 | +2 |
 
-Max risk score: **14** (all rules triggered simultaneously)
+Max risk score: **16** (all rules triggered simultaneously)
+
+> The rules never read the ground-truth label (`isFraud`). It is stored with each event only so alert precision can be measured. A regression test (`tests/test_fraud_rules.py`) enforces this.
 
 ### ML Scoring (SageMaker)
 
-- **Algorithm:** XGBoost (built-in SageMaker container)
-- **Features:** 8 fraud signal features
-- **Training:** Local XGBoost 3.0.2, 802 training samples
-- **Deployment:** SageMaker Serverless Inference (zero idle cost)
+- **Algorithm:** XGBoost, trained by `train_model.py`, served on SageMaker Serverless Inference
+- **Training data:** full enhanced PaySim dataset (not a sample)
+- **Split:** time-based on `step`: first 70% of time = train, next 15% = validation, last 15% = test.
+  A fraud model always scores *future* transactions, so the test set is strictly later than training.
+- **Threshold:** chosen on validation for ≥90% precision, then applied once to test
+- **Serving:** Lambda builds the feature vector with the same `fraud_features.py` used in training
+  (no training/serving skew, enforced by `tests/test_features.py`). If the endpoint is down, the rule engine still runs.
 
-**Model performance:**
-```
-Training AUC    : 1.0000
-Validation AUC  : 1.0000
-Precision       : 1.000
-Recall          : 1.000
-F1 Score        : 1.000
-```
+#### Features
 
-**Feature importance (gain):**
-```
-merchant_risk_score   89.97  ← strongest fraud predictor
-amount                84.63
-geo_anomaly_flag      71.14
-velocity_1hour        41.33
-rule_signal_score     40.59
-```
+| Group | Features | In deployed model? |
+|---|---|---|
+| Decision-time | amount, log amount, sender balance *before* the transaction, amount/balance ratio, drains-account flag, hour of day, 5-min and 1-hour velocity, geo anomaly, new device, merchant risk, transaction type | ✅ |
+| Post-transaction | balances *after* the transaction, balance error, balance-mismatch flag | ❌ ablation only |
+| Never used | `isFraud`, `isFlaggedFraud`, chargeback fields (arrive 7-90 days later), `rule_signal_score`, IDs | ❌ blocked in code |
 
-**Sample scores:**
-```
-Normal transaction              → 0.0227  ✓ CLEAN
-High-risk merchant + new device → 0.0534  ✓ CLEAN
-All signals — confirmed fraud   → 0.8836  🚨 FRAUD
-```
+#### Results (test set = last 15% of time)
 
----
+<!-- Paste artifacts/results.md here after running: python train_model.py --data <enhanced_transactions.csv> -->
+_RESULTS TABLE: run `train_model.py` and paste `artifacts/results.md` here._
+
+![Precision-recall curves](docs/pr_curves.png)
+
+#### Why an earlier version reported AUC 1.00, and what changed
+
+The first version of this model reported AUC 1.00 / F1 1.00. That number was not meaningful:
+
+1. **Tiny evaluation set.** It trained on ~800 rows and validated on ~200. At PaySim's ~0.13% fraud rate that is a handful of fraud cases, so a perfect score is noise.
+2. **Random split.** Shuffling mixes future transactions into training. Now the split is by time.
+3. **Label leaking into a feature.** The concept-drift simulation boosted `merchant_risk_score` only on fraud rows, so fraud and legitimate rows at the same merchant had different scores. Drift is now applied per merchant, and the ablation shows the model's dependence on that feature.
+4. **Label in the rule engine.** The Lambda rules included a `PAYSIM_FRAUD_LABEL` rule that read the answer key, so every fraud event was flagged by construction. That rule is removed.
+
+**Reading the ablation:** PaySim fraud follows a simulator pattern (fraud transfers usually empty the sender's account), so models with balance features score very high even when evaluated correctly. The "no balance features" row shows how much signal remains from behavioural features alone, and the "post-transaction balances" row shows how much extra comes from fields a real system would not have at decision time. On real card or payments data, expect much lower numbers.
 
 ## Medallion Architecture
 
@@ -344,8 +348,7 @@ fraud-sentinel/
 | SNS alert delivery | < 30 seconds |
 | Glue Bronze→Silver | 456 seconds, $0.11 |
 | Glue Silver→Gold | 89 seconds, $0.02 |
-| SageMaker training AUC | 1.0000 |
-| SageMaker F1 score | 1.0000 |
+| Model test PR-AUC (time split) | see [Results](#results-test-set--last-15-of-time) |
 | **Total AWS compute cost** | **~$0.15** |
 
 ---
@@ -363,8 +366,11 @@ fraud-sentinel/
 git clone https://github.com/jd878-gif/fraud-sentinel.git
 cd fraud-sentinel
 
-# Install dependencies
-pip install boto3 pandas numpy faker xgboost requests
+# Install dependencies (includes test tools)
+pip install -r requirements-dev.txt
+
+# Run the test suite (no AWS needed)
+pytest -q
 
 # Start LocalStack (free AWS emulation)
 docker-compose up -d
@@ -400,8 +406,9 @@ python deploy_and_run_glue.py
 # Deploy Step Functions orchestration
 python deploy_step_functions.py
 
-# Train and deploy SageMaker model
-python sagemaker_local_train_deploy.py
+# Train, evaluate and deploy the SageMaker model
+python enhancement_pipeline.py --input <paysim.csv> --outdir data/enhanced
+python train_model.py --data data/enhanced/enhanced_transactions.csv --deploy
 ```
 
 ---
@@ -456,7 +463,10 @@ python sagemaker_local_train_deploy.py
 > SQS + Lambda supports partial batch failure reporting. Lambda returns `{"batchItemFailures": [{"itemIdentifier": failed_message_id}]}`. SQS only retries the failed messages, not the whole batch. After 3 failures, the message goes to the DLQ. I have a CloudWatch alarm on DLQ depth that fires SNS if any message hits the DLQ.
 
 **"How does the idempotency work?"**
-> SQS at-least-once delivery means the same message can arrive twice. Before processing each message, Lambda checks DynamoDB for the event_id. If it exists, we skip. After successful processing, we write the event_id with a 24-hour TTL. DynamoDB conditional writes prevent race conditions between concurrent Lambda instances.
+> SQS at-least-once delivery means the same message can arrive twice, possibly to two Lambda instances at once. Before processing, Lambda *claims* the event_id with a DynamoDB conditional put (`attribute_not_exists`), which succeeds for exactly one caller. Duplicates fail the condition and are skipped. If processing fails, the claim is deleted so the SQS retry can run; on success it is marked DONE with a 24-hour TTL. A plain read-then-write check would race, which is why the claim comes first. Covered by `tests/test_lambda_handler.py`.
+
+**"Your first model had AUC 1.00. What happened?"**
+> It was evaluated on about 200 rows with a random split, and one feature had the label leaking into it. I rebuilt the evaluation: full dataset, time-based split, threshold picked on validation, PR-AUC with a bootstrap confidence interval, and an ablation that separates decision-time features from post-transaction balances. I also found the rule engine was reading the ground-truth label and removed it, with a regression test.
 
 **"Why Medallion architecture?"**
 > Bronze preserves the raw data exactly as received — critical for audit trails and pipeline replay. Silver is where cleaning happens: deduplication, type casting, quarantining corrupted records. Gold is business-ready aggregations that answer specific questions without touching raw data. This separation means a bug in Gold only requires rerunning one Glue job, not reprocessing raw data.
@@ -466,10 +476,11 @@ python sagemaker_local_train_deploy.py
 ## Tech Stack
 
 **Languages:** Python 3.12  
-**ML:** XGBoost 3.0.2  
+**ML:** XGBoost, scikit-learn (evaluation)  
 **Data:** Pandas, NumPy, PyArrow  
 **AWS:** SQS · Lambda · DynamoDB · S3 · Glue · Athena · Step Functions · SNS · SageMaker · CloudWatch · EventBridge  
 **Local Dev:** LocalStack · Docker  
+**Testing / CI:** pytest · ruff · GitHub Actions  
 **Data Source:** PaySim (Kaggle) — enhanced with custom pipeline  
 
 ---
